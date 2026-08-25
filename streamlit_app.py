@@ -28,8 +28,6 @@ else:
         st.stop()
 
     # Let the user upload a file via `st.file_uploader`.
-
-    # Let the user upload a file via `st.file_uploader`.
     uploaded_file = st.file_uploader(
         "Upload a document (.txt or .md)", type=("txt", "md")
     )
