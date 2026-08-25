@@ -16,8 +16,18 @@ if not openai_api_key:
     st.info("Please add your OpenAI API key to continue.", icon="🗝️")
 else:
 
-    # Create an OpenAI client.
+   # Create an OpenAI client.
     client = OpenAI(api_key=openai_api_key)
+
+    # Validate the API key immediately.
+    try:
+        client.models.list()
+        st.success("API key is valid!")
+    except Exception:
+        st.error("Invalid OpenAI API key. Please try again.")
+        st.stop()
+
+    # Let the user upload a file via `st.file_uploader`.
 
     # Let the user upload a file via `st.file_uploader`.
     uploaded_file = st.file_uploader(
