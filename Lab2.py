@@ -1,61 +1,121 @@
 import streamlit as st
 from openai import OpenAI
+import fitz
 
-# Show title and description.
+# Page Title
 st.title("Lab 2 - Document Summarizer")
+
 st.write(
-    "Upload a document below and ask a question about it – GPT will answer! "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
+    "Upload a document and choose your summary options from the sidebar."
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
 
-   # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
 
-    # Validate the API key immediately.
-    try:
-        client.models.list()
-        st.success("API key is valid!")
-    except Exception:
-        st.error("Invalid OpenAI API key. Please try again.")
-        st.stop()
+# Sidebar Options
+language = st.sidebar.selectbox(
+    "Choose a language",
+    [
+        "English",
+        "Spanish",
+        "French",
+        "German",
+        "Italian"
+    ]
+)
 
-    # Let the user upload a file via `st.file_uploader`.
-    uploaded_file = st.file_uploader(
-        "Upload a document (.txt or .md)", type=("txt", "md")
-    )
+summary_type = st.sidebar.selectbox(
+    "Choose a summary type",
+    [
+        "Summarize the document in 100 words",
+        "Summarize the document in 2 connecting paragraphs",
+        "Summarize the document in 5 bullet points"
+    ]
+)
 
-    # Ask the user for a question via `st.text_area`.
-    question = st.text_area(
-        "Now ask a question about the document!",
-        placeholder="Can you give me a short summary?",
-        disabled=not uploaded_file,
-    )
+model_choice = st.sidebar.selectbox(
+    "Choose a model",
+    [
+        "gpt-5-nano",
+        "gpt-5-mini"
+    ]
+)
 
-    if uploaded_file and question:
 
-        # Process the uploaded file and question.
-        document = uploaded_file.read().decode()
-        messages = [
-            {
-                "role": "user",
-                "content": f"Here's a document: {document} \n\n---\n\n {question}",
-            }
-        ]
+# OpenAI API Key
+openai_api_key = st.secrets["OPENAI_API_KEY"]
 
-        # Generate an answer using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=messages,
-            stream=True,
+client = OpenAI(api_key=openai_api_key)
+
+
+# Validate API Key
+try:
+    client.models.list()
+    st.success("API key is valid!")
+except Exception:
+    st.error("Invalid OpenAI API key.")
+    st.stop()
+
+
+# File Uploader
+uploaded_file = st.file_uploader(
+    "Upload a document (.txt, .md, or .pdf)",
+    type=("txt", "md", "pdf")
+)
+
+
+# Process Uploaded Document
+if uploaded_file:
+
+    # Read PDF
+    if uploaded_file.type == "application/pdf":
+
+        pdf_document = fitz.open(
+            stream=uploaded_file.read(),
+            filetype="pdf"
         )
 
-        # Stream the response to the app using `st.write_stream`.
-        st.write_stream(stream)
+        document = ""
+
+        for page in pdf_document:
+            document += page.get_text()
+
+        pdf_document.close()
+
+    # Read TXT or MD
+    else:
+        document = uploaded_file.read().decode("utf-8")
+
+
+    # Instructions for OpenAI
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a document summarization assistant. "
+                f"Provide the summary in {language}."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                f"{summary_type}.\n\n"
+                f"Document:\n{document}"
+            )
+        }
+    ]
+
+
+    
+    # Generate Summary
+
+    stream = client.chat.completions.create(
+        model=model_choice,
+        messages=messages,
+        stream=True,
+    )
+
+
+    # Display Summary
+    st.subheader("Summary")
+
+    st.write_stream(stream)
