@@ -47,13 +47,6 @@ openai_api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=openai_api_key)
 
 
-# Validate API Key
-try:
-    client.models.list()
-    st.success("API key is valid!")
-except Exception:
-    st.error("Invalid OpenAI API key.")
-    st.stop()
 
 
 # File Uploader
