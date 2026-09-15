@@ -55,6 +55,29 @@ def read_pdf(file_path):
 
 
 # --------------------------------------------------
+# Function to Split Text into Chunks
+# --------------------------------------------------
+
+def split_text(text, chunk_size=3000, overlap=300):
+
+    chunks = []
+
+    start = 0
+
+    while start < len(text):
+
+        end = start + chunk_size
+
+        chunk = text[start:end]
+
+        chunks.append(chunk)
+
+        start += chunk_size - overlap
+
+    return chunks
+
+
+# --------------------------------------------------
 # Function to Create Embedding
 # --------------------------------------------------
 
@@ -78,9 +101,18 @@ if "Lab4_VectorDB" not in st.session_state:
 
         chroma_client = chromadb.Client()
 
-        collection = chroma_client.get_or_create_collection(
-    name="Lab4Collection"
-)
+        # Delete old collection so we can rebuild it
+        # using chunks instead of entire PDFs
+        try:
+            chroma_client.delete_collection(
+                name="Lab4Collection"
+            )
+        except Exception:
+            pass
+
+        collection = chroma_client.create_collection(
+            name="Lab4Collection"
+        )
 
         pdf_folder = "Lab4_Data"
 
@@ -90,7 +122,9 @@ if "Lab4_VectorDB" not in st.session_state:
             if file.lower().endswith(".pdf")
         ]
 
-        for index, filename in enumerate(pdf_files):
+        document_id = 0
+
+        for filename in pdf_files:
 
             file_path = os.path.join(
                 pdf_folder,
@@ -99,20 +133,26 @@ if "Lab4_VectorDB" not in st.session_state:
 
             document_text = read_pdf(file_path)
 
-            embedding = create_embedding(
-                document_text
-            )
+            # Split PDF into smaller chunks
+            chunks = split_text(document_text)
 
-            collection.add(
-                ids=[str(index)],
-                documents=[document_text],
-                embeddings=[embedding],
-                metadatas=[
-                    {
-                        "filename": filename
-                    }
-                ]
-            )
+            for chunk_number, chunk in enumerate(chunks):
+
+                embedding = create_embedding(chunk)
+
+                collection.add(
+                    ids=[str(document_id)],
+                    documents=[chunk],
+                    embeddings=[embedding],
+                    metadatas=[
+                        {
+                            "filename": filename,
+                            "chunk": chunk_number
+                        }
+                    ]
+                )
+
+                document_id += 1
 
         st.session_state.Lab4_VectorDB = collection
 
@@ -147,7 +187,6 @@ if prompt := st.chat_input(
     "Ask a question about the courses..."
 ):
 
-    # Save user message
     user_message = {
         "role": "user",
         "content": prompt
@@ -157,7 +196,6 @@ if prompt := st.chat_input(
         user_message
     )
 
-    # Display user message
     with st.chat_message("user"):
         st.markdown(prompt)
 
@@ -166,20 +204,69 @@ if prompt := st.chat_input(
     # RAG Retrieval
     # --------------------------------------------------
 
-    query_embedding = create_embedding(
-        prompt
-    )
+    query_embedding = create_embedding(prompt)
 
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=3
+        n_results=5
     )
 
     retrieved_documents = results["documents"][0]
     retrieved_metadata = results["metadatas"][0]
 
 
-    # Combine retrieved documents
+    # --------------------------------------------------
+    # Prefer Course Mentioned in Question
+    # --------------------------------------------------
+
+    course_numbers = [
+        "195",
+        "256",
+        "314",
+        "343",
+        "387",
+        "418",
+        "488"
+    ]
+
+    mentioned_course = None
+
+    for course_number in course_numbers:
+
+        if course_number in prompt:
+            mentioned_course = course_number
+            break
+
+
+    # If user mentioned a specific course,
+    # directly retrieve chunks from that syllabus
+    if mentioned_course:
+
+        course_results = collection.get()
+
+        matching_documents = []
+        matching_metadata = []
+
+        for document, metadata in zip(
+            course_results["documents"],
+            course_results["metadatas"]
+        ):
+
+            if mentioned_course in metadata["filename"]:
+
+                matching_documents.append(document)
+                matching_metadata.append(metadata)
+
+        if matching_documents:
+
+            retrieved_documents = matching_documents
+            retrieved_metadata = matching_metadata
+
+
+    # --------------------------------------------------
+    # Build RAG Context
+    # --------------------------------------------------
+
     rag_context = ""
 
     for document, metadata in zip(
@@ -198,24 +285,32 @@ if prompt := st.chat_input(
     # --------------------------------------------------
 
     system_prompt = {
-        "role": "system",
-        "content": (
-            "You are a helpful course information chatbot. "
-            "Answer questions using simple and clear language. "
-            "Use the retrieved course syllabus information when it "
-            "contains information relevant to the user's question. "
-            "When you use information from the retrieved documents, "
-            "clearly say 'Based on the retrieved course documents:' "
-            "before your answer. "
-            "If the retrieved documents do not contain enough "
-            "information to answer the question, clearly say that "
-            "the answer was not found in the provided course documents. "
-            "Do not add unrelated information or offer additional services "
-            "unless the user asks for them."
-            "\n\nRetrieved course information:\n"
-            + rag_context
-        )
-    }
+    "role": "system",
+    "content": (
+        "You are a helpful course information chatbot. "
+        "Answer questions using simple and clear language. "
+
+        "Answer using only the retrieved course syllabus information. "
+
+        "When the retrieved documents contain the answer, begin with "
+        "'Based on the retrieved course documents:' and answer the question. "
+
+        "If the retrieved documents contain only part of the answer, explain "
+        "what information was found and clearly state what information was "
+        "not found. "
+
+        "If the answer cannot be found in the retrieved documents, say "
+        "'I could not find this information in the provided course documents.' "
+
+        "Do not invent information. "
+        "Do not suggest websites, Blackboard, email addresses, instructors, "
+        "uploads, or other sources unless the user specifically asks for them. "
+        "Do not offer additional services at the end of the answer."
+
+        "\n\nRetrieved course information:\n"
+        + rag_context
+    )
+}
 
 
     # --------------------------------------------------
@@ -254,14 +349,12 @@ if prompt := st.chat_input(
             current_exchange = []
 
 
-    # Keep last two completed exchanges
     recent_messages = []
 
     for exchange in exchanges[-2:]:
         recent_messages.extend(exchange)
 
 
-    # Add current question
     recent_messages.append(
         user_message
     )
@@ -285,9 +378,7 @@ if prompt := st.chat_input(
             stream=True
         )
 
-        response = st.write_stream(
-            stream
-        )
+        response = st.write_stream(stream)
 
 
     # Save assistant response
