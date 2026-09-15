@@ -1,3 +1,5 @@
 streamlit
 openai
 PyMuPDF
+pypdf
+pysqlite3-binary
