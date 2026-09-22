@@ -91,32 +91,10 @@ weather_tool = {
 
 
 # --------------------------------------------------
-# Part A - Test Weather Function
+# What to Wear Bot
 # --------------------------------------------------
 
-st.subheader("Part A - Weather Function Test")
-
-syracuse_weather = get_current_weather(
-    "Syracuse, NY"
-)
-
-lima_weather = get_current_weather(
-    "Lima, Peru"
-)
-
-st.write("Syracuse, NY:")
-st.write(syracuse_weather)
-
-st.write("Lima, Peru:")
-st.write(lima_weather)
-
-# --------------------------------------------------
-# Part B - What to Wear Bot
-# --------------------------------------------------
-
-st.divider()
-
-st.subheader("Part B - What to Wear Bot")
+st.subheader("What to Wear Bot")
 
 location = st.text_input(
     "Enter a city:",
@@ -141,7 +119,8 @@ if st.button("Get Recommendations"):
         }
     ]
 
-    # First OpenAI call
+    # First LLM call:
+    # The LLM decides whether it needs the weather tool.
     response = client.chat.completions.create(
         model="gpt-5-mini",
         messages=messages,
@@ -149,15 +128,17 @@ if st.button("Get Recommendations"):
         tool_choice="auto"
     )
 
-    # Get OpenAI's response
     assistant_message = response.choices[0].message
 
-    # Check if OpenAI requested the weather tool
+    # Check whether the LLM requested a tool
     if assistant_message.tool_calls:
+
+        # Add the LLM's tool request to the conversation
+        messages.append(assistant_message)
 
         tool_call = assistant_message.tool_calls[0]
 
-        # Get location from the tool call
+        # Read the arguments requested by the LLM
         arguments = json.loads(
             tool_call.function.arguments
         )
@@ -167,28 +148,53 @@ if st.button("Get Recommendations"):
             "Syracuse, NY"
         )
 
-        # Run the actual weather function
+        # The application executes the function ONLY
+        # after the LLM requests it
         weather_data = get_current_weather(
             requested_location
         )
 
-    
-                # Second OpenAI call using the weather data
-        final_prompt = (
-            f"The current weather information is: {weather_data}. "
-            "Based on this weather, recommend appropriate clothes "
-            "to wear today and outdoor activities that would be "
-            "appropriate for the weather."
+        # Return the tool result to the LLM
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": json.dumps(weather_data)
+            }
         )
 
+        # Give the LLM instructions for presenting the result
+        messages.append(
+            {
+                "role": "system",
+                "content": """
+Using the weather information returned by the tool,
+give the user a friendly and useful recommendation.
+
+Format the response like this:
+
+### 🌤️ Weather
+Give a short summary of today's weather.
+
+### 👕 What to Wear
+Give 3-5 practical clothing suggestions.
+
+### 🌳 Outdoor Activities
+Suggest 3-5 outdoor activities appropriate for the weather.
+
+### 💡 Quick Tip
+Give one useful tip for the day.
+
+Keep the response concise, creative, and easy to read.
+"""
+            }
+        )
+
+        # Second LLM call:
+        # The model now has the actual result from its requested tool.
         final_response = client.chat.completions.create(
             model="gpt-5-mini",
-            messages=[
-                {
-                    "role": "user",
-                    "content": final_prompt
-                }
-            ]
+            messages=messages
         )
 
         recommendation = (
@@ -196,4 +202,8 @@ if st.button("Get Recommendations"):
         )
 
         st.subheader("Today's Recommendation")
-        st.write(recommendation)
+        st.markdown(recommendation)
+
+    else:
+        # If the LLM decides that no tool is necessary
+        st.write(assistant_message.content)
