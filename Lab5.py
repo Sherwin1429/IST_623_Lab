@@ -1,28 +1,19 @@
-from openai import OpenAI
 import streamlit as st
 import requests
 import json
-
-# --------------------------------------------------
-# Page Title
-# --------------------------------------------------
-
-st.title("Lab 5 - What to Wear Bot")
+from openai import OpenAI
 
 
 # --------------------------------------------------
-# OpenAI Client
+# OpenAI Setup
 # --------------------------------------------------
 
 openai_api_key = st.secrets["OPENAI_API_KEY"]
-
-client = OpenAI(
-    api_key=openai_api_key
-)
+client = OpenAI(api_key=openai_api_key)
 
 
 # --------------------------------------------------
-# Function to Get Current Weather
+# Weather Function
 # --------------------------------------------------
 
 def get_current_weather(location):
@@ -61,8 +52,9 @@ def get_current_weather(location):
         "max_temperature": float(today["maxtempF"])
     }
 
+
 # --------------------------------------------------
-# Define Weather Tool for OpenAI
+# Weather Tool Definition
 # --------------------------------------------------
 
 weather_tool = {
@@ -70,8 +62,11 @@ weather_tool = {
     "function": {
         "name": "get_current_weather",
         "description": (
-            "Get the current weather information for a location "
-            "so clothing and outdoor activity recommendations can be made."
+            "Get the current weather information for a clearly "
+            "identified location. Before using this tool, make sure "
+            "the city is clear. If the city could refer to multiple "
+            "locations, ask the user for the state, province, or "
+            "country before requesting this tool."
         ),
         "parameters": {
             "type": "object",
@@ -79,7 +74,7 @@ weather_tool = {
                 "location": {
                     "type": "string",
                     "description": (
-                        "City and state or city and country, "
+                        "A clear city and state/province/country, "
                         "for example Syracuse, NY or Lima, Peru."
                     )
                 }
@@ -91,87 +86,36 @@ weather_tool = {
 
 
 # --------------------------------------------------
-# What to Wear Bot
+# System Prompt
 # --------------------------------------------------
 
-st.subheader("What to Wear Bot")
+system_prompt = """
+You are a helpful What to Wear assistant.
 
-location = st.text_input(
-    "Enter a city:",
-    placeholder="Example: Syracuse, NY"
-)
+Your job is to recommend clothing and outdoor activities
+based on the current weather.
 
-if st.button("Get Recommendations"):
+Use the get_current_weather tool whenever current weather
+information is needed.
 
-    # If no location is entered, use Syracuse, NY
-    if not location.strip():
-        location = "Syracuse, NY"
+Before requesting the weather tool, make sure the user's
+location is clear enough to identify the correct city.
 
-    user_prompt = (
-        f"What should I wear today in {location}, "
-        "and what outdoor activities would be appropriate?"
-    )
+If the user gives only a city name and that city could refer
+to multiple locations, do not guess or choose a location.
+Ask the user for more information such as the state,
+province, or country.
 
-    messages = [
-        {
-            "role": "user",
-            "content": user_prompt
-        }
-    ]
+Continue asking clarification questions until the location
+is clear enough to use the weather tool.
 
-    # First LLM call:
-    # The LLM decides whether it needs the weather tool.
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=messages,
-        tools=[weather_tool],
-        tool_choice="auto"
-    )
+If the user does not provide any location, use Syracuse, NY
+as the default location.
 
-    assistant_message = response.choices[0].message
+Do not make up current weather information.
 
-    # Check whether the LLM requested a tool
-    if assistant_message.tool_calls:
-
-        # Add the LLM's tool request to the conversation
-        messages.append(assistant_message)
-
-        tool_call = assistant_message.tool_calls[0]
-
-        # Read the arguments requested by the LLM
-        arguments = json.loads(
-            tool_call.function.arguments
-        )
-
-        requested_location = arguments.get(
-            "location",
-            "Syracuse, NY"
-        )
-
-        # The application executes the function ONLY
-        # after the LLM requests it
-        weather_data = get_current_weather(
-            requested_location
-        )
-
-        # Return the tool result to the LLM
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": json.dumps(weather_data)
-            }
-        )
-
-        # Give the LLM instructions for presenting the result
-        messages.append(
-            {
-                "role": "system",
-                "content": """
-Using the weather information returned by the tool,
-give the user a friendly and useful recommendation.
-
-Format the response like this:
+After receiving weather information from the tool, give a
+friendly, useful, and creative response using this format:
 
 ### 🌤️ Weather
 Give a short summary of today's weather.
@@ -183,27 +127,207 @@ Give 3-5 practical clothing suggestions.
 Suggest 3-5 outdoor activities appropriate for the weather.
 
 ### 💡 Quick Tip
-Give one useful tip for the day.
+Give one short useful tip for the day.
 
-Keep the response concise, creative, and easy to read.
+Keep the final response concise and easy to read.
 """
+
+
+# --------------------------------------------------
+# Streamlit Interface
+# --------------------------------------------------
+
+st.title("🌤️ What to Wear Bot")
+
+st.write(
+    "Tell me where you are, and I'll help you decide "
+    "what to wear and what you can do outside today."
+)
+
+
+# --------------------------------------------------
+# Conversation Memory
+# --------------------------------------------------
+
+if "lab5_messages" not in st.session_state:
+    st.session_state.lab5_messages = []
+
+
+# Display previous conversation
+for message in st.session_state.lab5_messages:
+
+    if message["role"] == "user":
+        with st.chat_message("user"):
+            st.markdown(message["content"])
+
+    elif message["role"] == "assistant":
+        with st.chat_message("assistant"):
+            st.markdown(message["content"])
+
+
+# --------------------------------------------------
+# User Input
+# --------------------------------------------------
+
+user_input = st.chat_input(
+    "Enter a city, for example Syracuse, NY"
+)
+
+
+if user_input:
+
+    # Save and display user's message
+    st.session_state.lab5_messages.append(
+        {
+            "role": "user",
+            "content": user_input
+        }
+    )
+
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+
+    # --------------------------------------------------
+    # Build Messages for LLM
+    # --------------------------------------------------
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt
+        }
+    ]
+
+    messages.extend(st.session_state.lab5_messages)
+
+
+    # --------------------------------------------------
+    # First LLM Call
+    # LLM decides whether to request the weather tool
+    # --------------------------------------------------
+
+    response = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=messages,
+        tools=[weather_tool],
+        tool_choice="auto"
+    )
+
+    assistant_message = response.choices[0].message
+
+
+    # --------------------------------------------------
+    # If LLM Requests Weather Tool
+    # --------------------------------------------------
+
+    if assistant_message.tool_calls:
+
+        # Add LLM's tool request to the conversation
+        messages.append(assistant_message)
+
+        tool_call = assistant_message.tool_calls[0]
+
+        arguments = json.loads(
+            tool_call.function.arguments
+        )
+
+        requested_location = arguments.get(
+            "location",
+            "Syracuse, NY"
+        )
+
+
+        # --------------------------------------------------
+        # Execute Tool ONLY After LLM Requests It
+        # --------------------------------------------------
+
+        try:
+
+            weather_data = get_current_weather(
+                requested_location
+            )
+
+
+            # --------------------------------------------------
+            # Return Tool Result to LLM
+            # --------------------------------------------------
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(weather_data)
+                }
+            )
+
+
+            # --------------------------------------------------
+            # Second LLM Call
+            # LLM uses weather result to create final answer
+            # --------------------------------------------------
+
+            final_response = client.chat.completions.create(
+                model="gpt-5-mini",
+                messages=messages,
+                tools=[weather_tool],
+                tool_choice="auto"
+            )
+
+            recommendation = (
+                final_response.choices[0].message.content
+            )
+
+
+            # Save final response
+            st.session_state.lab5_messages.append(
+                {
+                    "role": "assistant",
+                    "content": recommendation
+                }
+            )
+
+
+            # Display final response
+            with st.chat_message("assistant"):
+                st.markdown(recommendation)
+
+
+        except Exception as e:
+
+            error_message = (
+                "I couldn't get weather information for "
+                f"**{requested_location}**. "
+                "Please provide the city with its state, "
+                "province, or country."
+            )
+
+            st.session_state.lab5_messages.append(
+                {
+                    "role": "assistant",
+                    "content": error_message
+                }
+            )
+
+            with st.chat_message("assistant"):
+                st.markdown(error_message)
+
+
+    # --------------------------------------------------
+    # No Tool Call
+    # This can be a clarification question
+    # --------------------------------------------------
+
+    else:
+
+        assistant_response = assistant_message.content
+
+        st.session_state.lab5_messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_response
             }
         )
 
-        # Second LLM call:
-        # The model now has the actual result from its requested tool.
-        final_response = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=messages
-        )
-
-        recommendation = (
-            final_response.choices[0].message.content
-        )
-
-        st.subheader("Today's Recommendation")
-        st.markdown(recommendation)
-
-    else:
-        # If the LLM decides that no tool is necessary
-        st.write(assistant_message.content)
+        with st.chat_message("assistant"):
+            st.markdown(assistant_response)
