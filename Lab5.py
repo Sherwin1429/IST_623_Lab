@@ -8,9 +8,22 @@ from openai import OpenAI
 # OpenAI Setup
 # --------------------------------------------------
 
-openai_api_key = st.secrets["OPENAI_API_KEY"]
-client = OpenAI(api_key=openai_api_key)
+# Get API key from Codespaces or Streamlit Secrets
+import os
 
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+if not openai_api_key:
+    try:
+        openai_api_key = st.secrets["OPENAI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        pass
+
+if not openai_api_key:
+    st.error("OPENAI_API_KEY is not configured.")
+    st.stop()
+
+client = OpenAI(api_key=openai_api_key)
 
 # --------------------------------------------------
 # Weather Function
