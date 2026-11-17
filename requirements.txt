@@ -9,3 +9,4 @@ langchain
 langchain-openai
 requests
 mutagen
+openai-agents

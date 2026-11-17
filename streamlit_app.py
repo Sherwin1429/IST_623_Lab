@@ -7,9 +7,10 @@ lab3 = st.Page("Lab3.py", title="Lab 3")
 lab4 = st.Page("Lab4.py", title="Lab 4")
 lab5 = st.Page("Lab5.py", title="Lab 5")
 LangChain = st.Page("LangChain.py", title="LangChain")
-LabMultimodal = st.Page("LabMultimodal.py", title="LabMultimodal",default=True)
+LabMultimodal = st.Page("LabMultimodal.py", title="LabMultimodal")
+LabMultiAgent = st.Page("LabMultiAgent.py", title="LabMultiAgent",default=True)
 # Create navigation
-pg = st.navigation([lab1, lab2, lab3, lab4, lab5, LangChain, LabMultimodal])
+pg = st.navigation([lab1, lab2, lab3, lab4, lab5, LangChain, LabMultimodal, LabMultiAgent])
 
 # Run the selected page
 pg.run()
