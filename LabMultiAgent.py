@@ -1,9 +1,3 @@
-"""IST 688 Lab 9 — Multi-Agent Systems: The What to Wear Crew.
-
-Parts A–E completed; fill the observation comments for Part D from your own run
-and submit Parts E/F answers directly to Blackboard.
-"""
-
 import asyncio
 import os
 import time
